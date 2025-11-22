@@ -241,14 +241,29 @@ async def get_latest_frame(request: Request):
 async def upload_frame(request: Request):
     try:
         form = await request.form()
-        device_id = form.get('device_id')
-        frame_file = form.get('frame')
-        frame_bytes = await frame_file.read()
-        b64 = base64.b64encode(frame_bytes).decode('utf-8')
+        device_id = form.get("device_id")
+        frame_file = form.get("frame")
+
+        if not device_id or not frame_file:
+            return PlainTextResponse("Missing device_id or frame", status_code=400)
+
+        # Some browsers may send frame differently
+        if hasattr(frame_file, "file"):
+            frame_bytes = await frame_file.read()
+        else:
+            frame_bytes = bytes(frame_file)
+
+        if not frame_bytes:
+            return PlainTextResponse("Empty frame", status_code=400)
+
+        b64 = base64.b64encode(frame_bytes).decode("utf-8")
         with frame_lock:
-            uploaded_frames[device_id] = {'frame_data': b64, 'timestamp': time.time()}
+            uploaded_frames[device_id] = {"frame_data": b64, "timestamp": time.time()}
+
+        print(f"✅ Frame stored for {device_id} ({len(frame_bytes)} bytes)")
         return PlainTextResponse("OK")
     except Exception as e:
+        print("❌ Upload error:", e)
         return PlainTextResponse("ERROR", status_code=500)
 
 # ------------------------------
