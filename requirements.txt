@@ -4,3 +4,4 @@ websockets
 gunicorn
 opencv-python
 numpy
+python-multipart
