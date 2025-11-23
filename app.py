@@ -61,18 +61,16 @@ body {
     top: 0;
     left: 0;
     right: 0;
-    bottom: 70px; /* leave space for control bar */
+    bottom: 70px;
     display: flex;
     background: #000;
 }
 
-/* LEFT (My camera) */
 #myCamBox, #otherCamBox {
     flex: 1;
     display: flex;
     justify-content: center;
     align-items: center;
-    background: #000;
 }
 
 video, img {
@@ -80,8 +78,8 @@ video, img {
     height: auto;
     max-height: 90%;
     border-radius: 10px;
-    background: #111;
     object-fit: cover;
+    background: #111;
 }
 
 /* BOTTOM CONTROL BAR */
@@ -96,7 +94,6 @@ video, img {
     justify-content: center;
     align-items: center;
     gap: 25px;
-    padding-bottom: 5px;
 }
 
 /* BUTTONS */
@@ -108,120 +105,170 @@ video, img {
     font-size: 28px;
     color: white;
     cursor: pointer;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    transition: 0.2s;
 }
 
-/* States */
 .btn-on { background: #4CAF50; }
 .btn-off { background: #555; }
 .btn-danger { background: #b40000; }
 
-.controlBtn:active {
-    transform: scale(0.93);
-}
-
-/* For status text (mic level etc.) */
+/* INFO BOX */
 #infoBox {
     position: fixed;
     top: 10px;
     left: 10px;
-    color: #0f0;
     font-size: 14px;
 }
 </style>
 </head>
+
 <body>
 
 <div id="mainContainer">
-    <!-- LEFT: MY CAMERA -->
-    <div id="myCamBox">
-        <video id="myVideo" autoplay muted playsinline></video>
-    </div>
-
-    <!-- RIGHT: OTHER CAMERA -->
-    <div id="otherCamBox">
-        <img id="otherVideo" src="">
-    </div>
+    <div id="myCamBox"><video id="myVideo" autoplay muted playsinline></video></div>
+    <div id="otherCamBox"><img id="otherVideo"></div>
 </div>
 
-<!-- INFO TEXT -->
 <div id="infoBox">
     Frames sent: <span id="frameCount">0</span><br>
-    Other last update: <span id="lastUpdate">Never</span>
+    Last update: <span id="lastUpdate">Never</span>
 </div>
 
-<!-- CONTROL BAR -->
 <div id="controls">
-
-    <!-- MIC -->
-    <button id="micBtn" class="controlBtn btn-off" onclick="toggleMicUI()">
-        🎤
-    </button>
-
-    <!-- DEAFEN -->
-    <button id="deafenBtn" class="controlBtn btn-off" onclick="toggleDeafenUI()">
-        🔇
-    </button>
-
-    <!-- VIDEO -->
-    <button id="videoBtn" class="controlBtn btn-danger" onclick="toggleVideoUI()">
-        🎥
-    </button>
-
+    <button id="micBtn" class="controlBtn btn-off" onclick="toggleMicUI()">🎤</button>
+    <button id="deafenBtn" class="controlBtn btn-off" onclick="toggleDeafenUI()">🔇</button>
+    <button id="videoBtn" class="controlBtn btn-danger" onclick="toggleVideoUI()">🎥</button>
 </div>
 
 <script>
-/* -----------------------
-   UI Toggle (visual only)
-   Your existing backend
-   functions still run!
-------------------------*/
+let device_id = "{{ device_id }}";
+
+/* -------------------------------
+       VIDEO LOGIC (ORIGINAL)
+--------------------------------*/
+let isVideoOn = false;
+let localStream = null;
+let frameInterval = null;
+let uploadCount = 0;
+
+async function toggleVideo() {
+    if (!isVideoOn) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 640, height: 480, frameRate: 15 },
+            audio: false
+        });
+        localStream = stream;
+        document.getElementById("myVideo").srcObject = stream;
+        startVideoUpload();
+        isVideoOn = true;
+    } else {
+        stopVideo();
+    }
+}
+
+function startVideoUpload() {
+    const video = document.getElementById("myVideo");
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    canvas.width = 320; canvas.height = 240;
+
+    frameInterval = setInterval(() => {
+        if (video.readyState >= video.HAVE_CURRENT_DATA) {
+            ctx.drawImage(video,0,0,canvas.width,canvas.height);
+            canvas.toBlob(async (blob) => {
+                const fd = new FormData();
+                fd.append("frame", blob);
+                fd.append("device_id", device_id);
+                await fetch("/upload_frame", { method: "POST", body: fd });
+                uploadCount++;
+                document.getElementById("frameCount").textContent = uploadCount;
+            }, "image/jpeg",0.5);
+        }
+    }, 67);
+
+    startOtherStream();
+}
+
+function stopVideo() {
+    isVideoOn = false;
+    if (frameInterval) clearInterval(frameInterval);
+    if (localStream) localStream.getTracks().forEach(t => t.stop());
+    document.getElementById("myVideo").srcObject = null;
+    uploadCount = 0;
+    document.getElementById("frameCount").textContent = "0";
+}
+
+function startOtherStream() {
+    const other = document.getElementById("otherVideo");
+    setInterval(async () => {
+        const res = await fetch("/get_latest_frame?device_id=" + device_id);
+        const blob = await res.blob();
+        other.src = URL.createObjectURL(blob);
+        document.getElementById("lastUpdate").textContent = "Just now";
+    }, 100);
+}
+
+/* -------------------------------
+       AUDIO LOGIC (ORIGINAL)
+--------------------------------*/
+let ws = null;
+let isAudioOn = false;
+let audioCtx = null;
+let mediaStream = null;
+let processor = null;
+
+async function toggleAudio() {
+    if (!isAudioOn) {
+        ws = new WebSocket((location.protocol==="https:"?"wss://":"ws://") + window.location.host + "/{{ ws_endpoint }}");
+        ws.binaryType = "arraybuffer";
+
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        const source = audioCtx.createMediaStreamSource(mediaStream);
+        processor = audioCtx.createScriptProcessor(4096, 1, 1);
+        source.connect(processor);
+        processor.connect(audioCtx.destination);
+
+        processor.onaudioprocess = (e) => {
+            const data = e.inputBuffer.getChannelData(0);
+            const copy = new Float32Array(data);
+            if (ws.readyState === WebSocket.OPEN) ws.send(copy.buffer);
+        };
+
+        isAudioOn = true;
+    } else {
+        isAudioOn = false;
+        if (processor) processor.disconnect();
+        if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+        if (ws) ws.close();
+    }
+}
+
+/* --------------------------------
+     UI Buttons (visual + logic)
+--------------------------------*/
+function toggleVideoUI() {
+    const btn = document.getElementById("videoBtn");
+    if (!isVideoOn) btn.className = "controlBtn btn-on";
+    else btn.className = "controlBtn btn-danger";
+    toggleVideo();
+}
 
 let micOn = false;
-let deafenOn = false;
-let videoOn = false;
-
-/* MIC BUTTON */
 function toggleMicUI() {
     micOn = !micOn;
     document.getElementById("micBtn").className = micOn ? "controlBtn btn-on" : "controlBtn btn-off";
-    toggleAudio(); // your existing function
+    toggleAudio();
 }
 
-/* DEAFEN BUTTON (local mute + remote mute) */
+let deafenOn = false;
 function toggleDeafenUI() {
     deafenOn = !deafenOn;
     document.getElementById("deafenBtn").className = deafenOn ? "controlBtn btn-on" : "controlBtn btn-off";
 
-    // LOCAL EFFECT:
-    if (deafenOn) {
-        if (window.mediaStream) {
-            window.mediaStream.getAudioTracks().forEach(t => t.enabled = false);
-        }
-    } else {
-        if (window.mediaStream) {
-            window.mediaStream.getAudioTracks().forEach(t => t.enabled = true);
-        }
+    if (mediaStream) {
+        mediaStream.getAudioTracks().forEach(t => t.enabled = !deafenOn);
     }
-
-    // remote mute handled on your server if you want
-}
-
-/* VIDEO BUTTON */
-function toggleVideoUI() {
-    videoOn = !videoOn;
-
-    const btn = document.getElementById("videoBtn");
-    if (videoOn) {
-        btn.className = "controlBtn btn-on";
-    } else {
-        btn.className = "controlBtn btn-danger";
-    }
-
-    toggleVideo(); // your existing function
 }
 </script>
 
