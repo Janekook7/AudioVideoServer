@@ -42,166 +42,186 @@ DEVICE_PAGE_HTML = r"""
 <!DOCTYPE html>
 <html>
 <head>
-<title>{{ device_name }}</title>
+<title>{{ device_name }} - Video+Audio</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
 body {
     margin: 0;
     padding: 0;
-    background: black;
-    overflow: hidden;
-    font-family: Arial, sans-serif;
+    background: #000;
+    font-family: Arial;
     color: white;
+    overflow: hidden;
 }
 
-/* --- LAYOUT --- */
+/* MAIN LAYOUT */
 #mainContainer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 70px; /* leave space for control bar */
     display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 15px;
-    height: calc(100vh - 100px);
-    padding: 10px;
+    background: #000;
 }
 
-.videoBox {
-    background: #111;
-    border-radius: 10px;
-    padding: 5px;
-    width: 48%;
-    height: 100%;
+/* LEFT (My camera) */
+#myCamBox, #otherCamBox {
+    flex: 1;
     display: flex;
     justify-content: center;
     align-items: center;
+    background: #000;
 }
 
 video, img {
-    width: 100%;
-    height: 100%;
+    width: 95%;
+    height: auto;
+    max-height: 90%;
+    border-radius: 10px;
+    background: #111;
     object-fit: cover;
-    border-radius: 10px;
 }
 
-/* --- BOTTOM CONTROL BAR (Discord style) --- */
-#controlBar {
+/* BOTTOM CONTROL BAR */
+#controls {
     position: fixed;
-    bottom: 25px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #1e1e1e;
-    padding: 10px 25px;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 70px;
+    background: rgba(20,20,20,0.95);
     display: flex;
-    gap: 20px;
-    border-radius: 15px;
+    justify-content: center;
+    align-items: center;
+    gap: 25px;
+    padding-bottom: 5px;
 }
 
-.controlButton {
-    background: #2c2c2c;
+/* BUTTONS */
+.controlBtn {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
     border: none;
-    padding: 12px 20px;
+    font-size: 28px;
     color: white;
-    border-radius: 10px;
-    font-size: 16px;
     cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: 0.2s;
 }
 
-.controlButton.red {
-    background: #b52828;
+/* States */
+.btn-on { background: #4CAF50; }
+.btn-off { background: #555; }
+.btn-danger { background: #b40000; }
+
+.controlBtn:active {
+    transform: scale(0.93);
 }
 
-.controlButton.green {
-    background: #3ba55d;
+/* For status text (mic level etc.) */
+#infoBox {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    color: #0f0;
+    font-size: 14px;
 }
 </style>
 </head>
-
 <body>
 
 <div id="mainContainer">
-    <!-- My Camera -->
-    <div class="videoBox">
+    <!-- LEFT: MY CAMERA -->
+    <div id="myCamBox">
         <video id="myVideo" autoplay muted playsinline></video>
     </div>
 
-    <!-- Other Camera -->
-    <div class="videoBox">
+    <!-- RIGHT: OTHER CAMERA -->
+    <div id="otherCamBox">
         <img id="otherVideo" src="">
     </div>
 </div>
 
-<!-- ==================== CONTROL BAR ==================== -->
-<div id="controlBar">
+<!-- INFO TEXT -->
+<div id="infoBox">
+    Frames sent: <span id="frameCount">0</span><br>
+    Other last update: <span id="lastUpdate">Never</span>
+</div>
 
-    <button id="micBtn" class="controlButton green" onclick="toggleMic()">
-        🎤 Mic On
+<!-- CONTROL BAR -->
+<div id="controls">
+
+    <!-- MIC -->
+    <button id="micBtn" class="controlBtn btn-off" onclick="toggleMicUI()">
+        🎤
     </button>
 
-    <button id="deafenBtn" class="controlButton" onclick="toggleDeafen()">
-        🔇 Deafen
+    <!-- DEAFEN -->
+    <button id="deafenBtn" class="controlBtn btn-off" onclick="toggleDeafenUI()">
+        🔇
     </button>
 
-    <button id="videoBtn" class="controlButton green" onclick="toggleVideo()">
-        🎥 Video On
+    <!-- VIDEO -->
+    <button id="videoBtn" class="controlBtn btn-danger" onclick="toggleVideoUI()">
+        🎥
     </button>
 
 </div>
 
 <script>
-/* ==========================================================
-   JAVASCRIPT – Wire into your existing functions
-   ========================================================== */
+/* -----------------------
+   UI Toggle (visual only)
+   Your existing backend
+   functions still run!
+------------------------*/
 
-let micOn = true;
+let micOn = false;
+let deafenOn = false;
 let videoOn = false;
-let deafened = false;
 
-function toggleMic() {
+/* MIC BUTTON */
+function toggleMicUI() {
     micOn = !micOn;
-
-    if (micOn) {
-        document.getElementById("micBtn").textContent = "🎤 Mic On";
-        document.getElementById("micBtn").classList.remove("red");
-        document.getElementById("micBtn").classList.add("green");
-        toggleAudio(true);
-    } else {
-        document.getElementById("micBtn").textContent = "🔇 Mic Off";
-        document.getElementById("micBtn").classList.remove("green");
-        document.getElementById("micBtn").classList.add("red");
-        toggleAudio(false);
-    }
+    document.getElementById("micBtn").className = micOn ? "controlBtn btn-on" : "controlBtn btn-off";
+    toggleAudio(); // your existing function
 }
 
-function toggleDeafen() {
-    deafened = !deafened;
+/* DEAFEN BUTTON (local mute + remote mute) */
+function toggleDeafenUI() {
+    deafenOn = !deafenOn;
+    document.getElementById("deafenBtn").className = deafenOn ? "controlBtn btn-on" : "controlBtn btn-off";
 
-    if (deafened) {
-        document.getElementById("deafenBtn").textContent = "🔇 Deafened";
-        document.getElementById("deafenBtn").classList.add("red");
-
-        // Stop sending + receiving audio
-        toggleAudio(false);
+    // LOCAL EFFECT:
+    if (deafenOn) {
+        if (window.mediaStream) {
+            window.mediaStream.getAudioTracks().forEach(t => t.enabled = false);
+        }
     } else {
-        document.getElementById("deafenBtn").textContent = "🔈 Undeafened";
-        document.getElementById("deafenBtn").classList.remove("red");
-
-        toggleAudio(true);
+        if (window.mediaStream) {
+            window.mediaStream.getAudioTracks().forEach(t => t.enabled = true);
+        }
     }
+
+    // remote mute handled on your server if you want
 }
 
-function toggleVideo() {
+/* VIDEO BUTTON */
+function toggleVideoUI() {
     videoOn = !videoOn;
 
+    const btn = document.getElementById("videoBtn");
     if (videoOn) {
-        document.getElementById("videoBtn").textContent = "🎥 Video On";
-        document.getElementById("videoBtn").classList.add("green");
-        startVideoUpload();
+        btn.className = "controlBtn btn-on";
     } else {
-        document.getElementById("videoBtn").textContent = "🚫 Video Off";
-        document.getElementById("videoBtn").classList.remove("green");
-        document.getElementById("videoBtn").classList.add("red");
-        stopVideo();
+        btn.className = "controlBtn btn-danger";
     }
+
+    toggleVideo(); // your existing function
 }
 </script>
 
