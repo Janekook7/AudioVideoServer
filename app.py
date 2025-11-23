@@ -414,10 +414,10 @@ function toggleDeafenUI() {
         stopAudioSendAndRecv();
 
     } else {
-        // re-enable: audio stack will be restarted only if user turns mic on
-        // if mic had been on before, restart it; otherwise keep idle
-        // keep playbackGain enabled
-        // nothing else to do until mic toggled
+        micOn = !micOn;
+        document.getElementById("micBtn").className = "controlBtn btn-on";
+        startAudioSendAndRecv();
+
     }
 }
 
