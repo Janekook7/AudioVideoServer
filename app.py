@@ -50,7 +50,7 @@ body {
     margin: 0;
     padding: 0;
     background: #000;
-    font-family: Arial;
+    font-family: Arial, Helvetica, sans-serif;
     color: white;
     overflow: hidden;
 }
@@ -61,25 +61,38 @@ body {
     top: 0;
     left: 0;
     right: 0;
-    bottom: 70px;
+    bottom: 70px; /* leave space for control bar */
     display: flex;
     background: #000;
 }
 
+/* Left / Right camera panels */
 #myCamBox, #otherCamBox {
     flex: 1;
     display: flex;
     justify-content: center;
     align-items: center;
+    padding: 12px;
 }
 
+/* Make a black "stage" background behind the video area */
+#stage {
+    position: absolute;
+    inset: 0 0 70px 0; /* leave bottom control bar space */
+    background: #000;
+    z-index: 0;
+}
+
+/* video & img style */
 video, img {
     width: 95%;
     height: auto;
-    max-height: 90%;
+    max-height: calc(100% - 24px);
     border-radius: 10px;
     object-fit: cover;
-    background: #111;
+    background: #000;
+    border: 2px solid #111;
+    z-index: 1;
 }
 
 /* BOTTOM CONTROL BAR */
@@ -89,26 +102,36 @@ video, img {
     left: 0;
     right: 0;
     height: 70px;
-    background: rgba(20,20,20,0.95);
+    background: rgba(20,20,20,0.98);
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: 25px;
+    gap: 28px;
+    z-index: 2;
+    box-shadow: 0 -6px 18px rgba(0,0,0,0.6);
 }
 
 /* BUTTONS */
 .controlBtn {
-    width: 60px;
-    height: 60px;
+    width: 64px;
+    height: 64px;
     border-radius: 50%;
     border: none;
-    font-size: 28px;
+    font-size: 26px;
     color: white;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform .12s ease, box-shadow .12s ease;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+    user-select: none;
 }
 
+.controlBtn:active { transform: scale(0.95); }
+
 .btn-on { background: #4CAF50; }
-.btn-off { background: #555; }
+.btn-off { background: #4b4b4b; }
 .btn-danger { background: #b40000; }
 
 /* INFO BOX */
@@ -116,35 +139,46 @@ video, img {
     position: fixed;
     top: 10px;
     left: 10px;
-    font-size: 14px;
+    font-size: 13px;
+    color: #bfbfbf;
+    z-index: 3;
+    background: rgba(0,0,0,0.35);
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.03);
 }
 </style>
 </head>
 
 <body>
+<div id="stage"></div>
 
 <div id="mainContainer">
-    <div id="myCamBox"><video id="myVideo" autoplay muted playsinline></video></div>
-    <div id="otherCamBox"><img id="otherVideo"></div>
+    <div id="myCamBox">
+        <video id="myVideo" autoplay muted playsinline></video>
+    </div>
+
+    <div id="otherCamBox">
+        <img id="otherVideo" alt="Other device video" />
+    </div>
 </div>
 
 <div id="infoBox">
-    Frames sent: <span id="frameCount">0</span><br>
+    Frames sent: <span id="frameCount">0</span> <br>
     Last update: <span id="lastUpdate">Never</span>
 </div>
 
 <div id="controls">
-    <button id="micBtn" class="controlBtn btn-off" onclick="toggleMicUI()">🎤</button>
-    <button id="deafenBtn" class="controlBtn btn-off" onclick="toggleDeafenUI()">🔇</button>
-    <button id="videoBtn" class="controlBtn btn-danger" onclick="toggleVideoUI()">🎥</button>
+    <button id="micBtn" class="controlBtn btn-off" onclick="toggleMicUI()" title="Toggle microphone">🎤</button>
+    <button id="deafenBtn" class="controlBtn btn-off" onclick="toggleDeafenUI()" title="Deafen (local mute)">🔇</button>
+    <button id="videoBtn" class="controlBtn btn-danger" onclick="toggleVideoUI()" title="Toggle camera">🎥</button>
 </div>
 
 <script>
-let device_id = "{{ device_id }}";
+/* ====== device id from server template ====== */
+const device_id = "{{ device_id }}";
 
-/* -------------------------------
-       VIDEO LOGIC (ORIGINAL)
---------------------------------*/
+/* ====== VIDEO logic (unchanged behavior) ====== */
 let isVideoOn = false;
 let localStream = null;
 let frameInterval = null;
@@ -152,14 +186,18 @@ let uploadCount = 0;
 
 async function toggleVideo() {
     if (!isVideoOn) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: 640, height: 480, frameRate: 15 },
-            audio: false
-        });
-        localStream = stream;
-        document.getElementById("myVideo").srcObject = stream;
-        startVideoUpload();
-        isVideoOn = true;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 640, height: 480, frameRate: 15 },
+                audio: false
+            });
+            localStream = stream;
+            document.getElementById("myVideo").srcObject = stream;
+            startVideoUpload();
+            isVideoOn = true;
+        } catch (err) {
+            alert("Camera error: " + err);
+        }
     } else {
         stopVideo();
     }
@@ -173,15 +211,19 @@ function startVideoUpload() {
 
     frameInterval = setInterval(() => {
         if (video.readyState >= video.HAVE_CURRENT_DATA) {
-            ctx.drawImage(video,0,0,canvas.width,canvas.height);
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             canvas.toBlob(async (blob) => {
-                const fd = new FormData();
-                fd.append("frame", blob);
-                fd.append("device_id", device_id);
-                await fetch("/upload_frame", { method: "POST", body: fd });
-                uploadCount++;
-                document.getElementById("frameCount").textContent = uploadCount;
-            }, "image/jpeg",0.5);
+                try {
+                    const fd = new FormData();
+                    fd.append("frame", blob);
+                    fd.append("device_id", device_id);
+                    await fetch("/upload_frame", { method: "POST", body: fd });
+                    uploadCount++;
+                    document.getElementById("frameCount").textContent = uploadCount;
+                } catch (e) {
+                    console.log("upload error:", e);
+                }
+            }, "image/jpeg", 0.5);
         }
     }, 67);
 
@@ -190,8 +232,8 @@ function startVideoUpload() {
 
 function stopVideo() {
     isVideoOn = false;
-    if (frameInterval) clearInterval(frameInterval);
-    if (localStream) localStream.getTracks().forEach(t => t.stop());
+    if (frameInterval) { clearInterval(frameInterval); frameInterval = null; }
+    if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
     document.getElementById("myVideo").srcObject = null;
     uploadCount = 0;
     document.getElementById("frameCount").textContent = "0";
@@ -199,77 +241,203 @@ function stopVideo() {
 
 function startOtherStream() {
     const other = document.getElementById("otherVideo");
-    setInterval(async () => {
-        const res = await fetch("/get_latest_frame?device_id=" + device_id);
-        const blob = await res.blob();
-        other.src = URL.createObjectURL(blob);
-        document.getElementById("lastUpdate").textContent = "Just now";
+
+    // Reuse existing interval if exists by clearing first (just in case)
+    if (window._otherStreamInterval) clearInterval(window._otherStreamInterval);
+
+    window._otherStreamInterval = setInterval(async () => {
+        try {
+            const res = await fetch("/get_latest_frame?device_id=" + device_id + "&t=" + Date.now());
+            if (!res.ok) return;
+            const blob = await res.blob();
+            // revoke old objectURL to avoid leaks
+            if (window._lastOtherURL) URL.revokeObjectURL(window._lastOtherURL);
+            const url = URL.createObjectURL(blob);
+            window._lastOtherURL = url;
+            other.src = url;
+            document.getElementById("lastUpdate").textContent = "Just now";
+        } catch (e) {
+            // network error
+            document.getElementById("lastUpdate").textContent = "Error";
+            console.log("other frame fetch error", e);
+        }
     }, 100);
 }
 
-/* -------------------------------
-       AUDIO LOGIC (ORIGINAL)
---------------------------------*/
+/* ====== AUDIO logic (fixed send + receive) ====== */
+/*
+  Behavior:
+  - Mic button toggles capturing + sending audio over the websocket.
+  - Incoming audio frames are played immediately via AudioContext.
+  - Deafen disables both sending and incoming playback (local mute).
+*/
+
 let ws = null;
 let isAudioOn = false;
 let audioCtx = null;
 let mediaStream = null;
 let processor = null;
+let micOn = false;         // whether we *intend* to send mic
+let deafenOn = false;      // deafen (local mute + stop sending)
+let localGainZero = null;  // gain node to silence local capture playback
+let playbackGain = null;   // gain node to control incoming playback volume
 
-async function toggleAudio() {
-    if (!isAudioOn) {
-        ws = new WebSocket((location.protocol==="https:"?"wss://":"ws://") + window.location.host + "/{{ ws_endpoint }}");
+async function startAudioSendAndRecv() {
+    if (isAudioOn) return;
+    try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+
+        // create zero-gain node so we can run the processor without audible local echo
+        localGainZero = audioCtx.createGain();
+        localGainZero.gain.value = 0;
+        localGainZero.connect(audioCtx.destination);
+
+        // playback gain for incoming audio (we set to 1 normally, 0 when deafen)
+        playbackGain = audioCtx.createGain();
+        playbackGain.gain.value = deafenOn ? 0 : 1;
+        playbackGain.connect(audioCtx.destination);
+
+        // open websocket to server endpoint (inserted by template replaced when rendering)
+        const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + window.location.host + "/{{ ws_endpoint }}";
+        ws = new WebSocket(wsUrl);
         ws.binaryType = "arraybuffer";
 
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-        const source = audioCtx.createMediaStreamSource(mediaStream);
-        processor = audioCtx.createScriptProcessor(4096, 1, 1);
-        source.connect(processor);
-        processor.connect(audioCtx.destination);
-
-        processor.onaudioprocess = (e) => {
-            const data = e.inputBuffer.getChannelData(0);
-            const copy = new Float32Array(data);
-            if (ws.readyState === WebSocket.OPEN) ws.send(copy.buffer);
+        ws.onopen = () => {
+            console.log("audio ws open");
         };
 
+        ws.onclose = () => {
+            console.log("audio ws closed");
+        };
+
+        // receive handler - create buffer and play immediately
+        ws.onmessage = (ev) => {
+            try {
+                if (!audioCtx) return;
+                const arr = new Float32Array(ev.data);
+                const buf = audioCtx.createBuffer(1, arr.length, audioCtx.sampleRate);
+                buf.copyToChannel(arr, 0, 0);
+                const src = audioCtx.createBufferSource();
+                src.buffer = buf;
+                src.connect(playbackGain);
+                src.start();
+            } catch (e) {
+                console.error("ws.onmessage error", e);
+            }
+        };
+
+        // capture local mic
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const source = audioCtx.createMediaStreamSource(mediaStream);
+
+        // ScriptProcessor to read raw PCM and send as Float32
+        processor = audioCtx.createScriptProcessor(4096, 1, 1);
+        processor.onaudioprocess = (e) => {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            if (!micOn) return; // only send when mic toggled on (and not deafened)
+            const input = e.inputBuffer.getChannelData(0);
+            // copy to avoid referencing the same buffer
+            const copy = new Float32Array(input.length);
+            copy.set(input);
+            try {
+                ws.send(copy.buffer);
+            } catch (err) {
+                console.warn("ws send error", err);
+            }
+        };
+
+        // connect nodes so processor runs but we don't hear ourselves:
+        // source -> processor -> localGainZero (zero) -> destination
+        source.connect(processor);
+        processor.connect(localGainZero);
+
         isAudioOn = true;
-    } else {
-        isAudioOn = false;
-        if (processor) processor.disconnect();
-        if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
-        if (ws) ws.close();
+        console.log("audio started");
+    } catch (err) {
+        console.error("startAudioSendAndRecv error:", err);
     }
 }
 
-/* --------------------------------
-     UI Buttons (visual + logic)
---------------------------------*/
-function toggleVideoUI() {
-    const btn = document.getElementById("videoBtn");
-    if (!isVideoOn) btn.className = "controlBtn btn-on";
-    else btn.className = "controlBtn btn-danger";
-    toggleVideo();
+function stopAudioSendAndRecv() {
+    try {
+        if (processor) { processor.disconnect(); processor.onaudioprocess = null; processor = null; }
+        if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+        if (ws) { try { ws.close(); } catch(e){} ws = null; }
+        if (localGainZero) { try { localGainZero.disconnect(); } catch(e){} localGainZero = null; }
+        if (playbackGain) { try { playbackGain.disconnect(); } catch(e){} playbackGain = null; }
+    } finally {
+        isAudioOn = false;
+        audioCtx = audioCtx; // keep the audioCtx instance so subsequent playbacks reuse it
+        console.log("audio stopped");
+    }
 }
 
-let micOn = false;
+/* Toggle mic sending (UI + logic) */
 function toggleMicUI() {
     micOn = !micOn;
     document.getElementById("micBtn").className = micOn ? "controlBtn btn-on" : "controlBtn btn-off";
-    toggleAudio();
+
+    // If deafen active, don't allow mic to be on -- clear it
+    if (deafenOn && micOn) {
+        micOn = false;
+        document.getElementById("micBtn").className = "controlBtn btn-off";
+        return;
+    }
+
+    if (micOn) {
+        // ensure ws and capture are started
+        startAudioSendAndRecv();
+    } else {
+        // stop sending but keep receive path alive (unless deafen)
+        // we can simply stop the media tracks to stop sending
+        if (mediaStream) mediaStream.getAudioTracks().forEach(t => t.enabled = false);
+        // but keep ws open to continue receiving
+        if (mediaStream && mediaStream.getAudioTracks) {
+            // prefer toggling enabled instead of stopping entirely so toggling back is faster
+            mediaStream.getAudioTracks().forEach(t => t.enabled = false);
+        }
+        // if you want to fully close send resources when micOff, uncomment:
+        // stopAudioSendAndRecv();
+    }
 }
 
-let deafenOn = false;
+/* Deafen: local mute + stop sending (both directions local) */
 function toggleDeafenUI() {
     deafenOn = !deafenOn;
     document.getElementById("deafenBtn").className = deafenOn ? "controlBtn btn-on" : "controlBtn btn-off";
 
-    if (mediaStream) {
-        mediaStream.getAudioTracks().forEach(t => t.enabled = !deafenOn);
+    if (deafenOn) {
+        // stop sending & disable mic
+        micOn = false;
+        document.getElementById("micBtn").className = "controlBtn btn-off";
+
+        // close send/receive stack to ensure remote no longer hears us and we can't hear them
+        stopAudioSendAndRecv();
+
+    } else {
+        // re-enable: audio stack will be restarted only if user turns mic on
+        // if mic had been on before, restart it; otherwise keep idle
+        // keep playbackGain enabled
+        // nothing else to do until mic toggled
     }
 }
+
+/* toggleVideoUI uses same toggleVideo() function and updates button */
+function toggleVideoUI() {
+    const btn = document.getElementById("videoBtn");
+    if (!isVideoOn) {
+        btn.className = "controlBtn btn-on";
+    } else {
+        btn.className = "controlBtn btn-danger";
+    }
+    toggleVideo();
+}
+
+/* When leaving page - cleanup */
+window.addEventListener("beforeunload", () => {
+    try { stopAudioSendAndRecv(); } catch(e){}
+    try { stopVideo(); } catch(e){}
+});
 </script>
 
 </body>
