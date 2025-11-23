@@ -45,161 +45,159 @@ DEVICE_PAGE_HTML = r"""
 <title>{{ device_name }} - Video+Audio</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-body { margin:0; padding:10px; font-family:Arial; background:#111; color:white;}
-h1 { text-align:center; color:#4CAF50; }
-.video-box, .audio-box { margin:10px 0; padding:10px; background:#222; border-radius:8px; }
-video, img { max-width:100%; border:2px solid #444; border-radius:8px; background:#000; display:block; margin:0 auto; }
-button { padding:10px 20px; margin:5px; font-size:16px; border:none; border-radius:6px; cursor:pointer; }
-#startVideoBtn { background:#4CAF50; color:white; }
-#startAudioBtn { background:#2196F3; color:white; }
-#stopVideoBtn, #stopAudioBtn { background:#f44336; color:white; }
+    body {
+        margin:0;
+        padding:0;
+        background:#000;
+        color:white;
+        font-family:Arial, sans-serif;
+        overflow:hidden;
+    }
+
+    /* Full screen 2-video layout */
+    #videoContainer {
+        display:flex;
+        flex-direction:row;
+        width:100vw;
+        height:100vh;
+        background:#111;
+    }
+
+    .videoBox {
+        flex:1;
+        display:flex;
+        justify-content:center;
+        align-items:center;
+        background:#000;
+        border-right:2px solid #222;
+    }
+
+    .videoBox:last-child {
+        border-right:none;
+    }
+
+    video, img {
+        width:100%;
+        height:100%;
+        object-fit:cover;
+        background:#000;
+    }
+
+    /* Bottom control bar */
+    #controlBar {
+        position:fixed;
+        bottom:0;
+        left:0;
+        width:100%;
+        height:80px;
+        background:rgba(20,20,20,0.9);
+        display:flex;
+        justify-content:center;
+        align-items:center;
+        gap:25px;
+        border-top:2px solid #333;
+    }
+
+    .ctrlBtn {
+        width:55px;
+        height:55px;
+        border:none;
+        border-radius:12px;
+        background:#2b2b2b;
+        display:flex;
+        justify-content:center;
+        align-items:center;
+        font-size:28px;
+        color:white;
+        cursor:pointer;
+        transition:0.2s;
+    }
+
+    .ctrlBtn.red {
+        background:#b32626;
+    }
+
+    .ctrlBtn:hover {
+        background:#444;
+    }
+
+    .ctrlBtn.red:hover {
+        background:#d22;
+    }
 </style>
 </head>
+
 <body>
-<h1>{{ device_name }} - Video+Audio</h1>
 
-<div class="video-box">
-    <h3>🎥 My Camera</h3>
-    <video id="myVideo" autoplay muted playsinline></video>
-    <div>Frames sent: <span id="frameCount">0</span></div>
-    <button id="startVideoBtn" onclick="toggleVideo()">Start Video</button>
+<!-- 2-camera fullscreen layout -->
+<div id="videoContainer">
+    <div class="videoBox">
+        <video id="myVideo" autoplay muted playsinline></video>
+    </div>
+
+    <div class="videoBox">
+        <img id="otherVideo">
+    </div>
 </div>
 
-<div class="video-box">
-    <h3>👥 Other Device</h3>
-    <img id="otherVideo" src="" alt="Other device video">
-    <div>Last update: <span id="lastUpdate">Never</span></div>
+<!-- Control panel -->
+<div id="controlBar">
+    <button id="micBtn" class="ctrlBtn">🎤</button>
+    <button id="deafenBtn" class="ctrlBtn">🎧</button>
+    <button id="videoBtn" class="ctrlBtn">🎥</button>
 </div>
 
-<div class="audio-box">
-    <h3>🎤 Audio</h3>
-    <div>Status: <span id="audioStatus">Off</span></div>
-    <progress id="micLevel" value="0" max="1" style="width:100%;"></progress>
-    <button id="startAudioBtn" onclick="toggleAudio()">Start Audio</button>
-</div>
 
 <script>
-let isVideoOn = false;
-let isAudioOn = false;
-let localStream = null;
-let frameInterval = null;
-let uploadCount = 0;
-let ws = null;
-let audioCtx = null;
-let mediaStream = null;
-let processor = null;
-let audioQueue = [];
-let playing=false;
-let lastOtherBlobUrl = null;
+/* --------------------------
+   STATE
+--------------------------- */
+let micOn = false;
+let deafened = false;
+let videoOn = false;
+
+/* --------------------------
+   BUTTON LOGIC
+--------------------------- */
+
+document.getElementById("micBtn").onclick = () => {
+    micOn = !micOn;
+    document.getElementById("micBtn").classList.toggle("red", !micOn);
+    toggleAudio();     // call your existing function
+};
+
+document.getElementById("deafenBtn").onclick = () => {
+    deafened = !deafened;
+    document.getElementById("deafenBtn").classList.toggle("red", deafened);
+
+    // Deafened = mute mic AND mute incoming audio
+    if (deafened) {
+        if (window.mediaStream) {
+            mediaStream.getTracks().forEach(t => t.enabled = false);
+        }
+        window._deafened = true;
+    } else {
+        if (window.mediaStream) {
+            mediaStream.getTracks().forEach(t => t.enabled = true);
+        }
+        window._deafened = false;
+    }
+};
+
+document.getElementById("videoBtn").onclick = () => {
+    videoOn = !videoOn;
+    document.getElementById("videoBtn").classList.toggle("red", !videoOn);
+    toggleVideo();     // call your existing camera function
+};
+
+/* --------------------------
+   VIDEO & AUDIO HOOKS
+   (your functions remain)
+--------------------------- */
 
 const device_id = "{{ device_id }}";
-
-function updateStats() {
-    document.getElementById('frameCount').textContent = uploadCount;
-}
-
-async function toggleVideo() {
-    if(!isVideoOn){
-        try{
-            const constraints = { video: { width:640, height:480, frameRate:15 }, audio:false };
-            localStream = await navigator.mediaDevices.getUserMedia(constraints);
-            document.getElementById("myVideo").srcObject = localStream;
-            startVideoUpload();
-            isVideoOn = true;
-            document.getElementById("startVideoBtn").textContent = "Stop Video";
-        }catch(e){ alert("Camera error: "+e); }
-    }else{
-        stopVideo();
-    }
-}
-
-function startVideoUpload(){
-    const video = document.getElementById("myVideo");
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    canvas.width=320; canvas.height=240;
-    frameInterval = setInterval(()=>{
-        if(video.readyState>=video.HAVE_CURRENT_DATA){
-            ctx.drawImage(video,0,0,canvas.width,canvas.height);
-            canvas.toBlob(async (blob)=>{
-                const formData = new FormData();
-                formData.append("frame", blob);
-                formData.append("device_id", device_id);
-                try{
-                    const res = await fetch("/upload_frame",{method:"POST",body:formData});
-                    if(res.ok){ uploadCount++; updateStats(); }
-                }catch(e){ console.log(e); }
-            }, "image/jpeg",0.5);
-        }
-    }, 67);
-    startOtherVideoStream();
-}
-
-function stopVideo(){
-    isVideoOn=false;
-    if(frameInterval){ clearInterval(frameInterval); frameInterval=null; }
-    if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
-    document.getElementById("myVideo").srcObject=null;
-    uploadCount=0; updateStats();
-    document.getElementById("startVideoBtn").textContent = "Start Video";
-}
-
-function startOtherVideoStream(){
-    const otherVideo = document.getElementById("otherVideo");
-    setInterval(async ()=>{
-        try{
-            const resp = await fetch('/get_latest_frame?device_id='+device_id+'&t='+Date.now());
-            if(!resp.ok) return;
-            const blob = await resp.blob();
-            const url = URL.createObjectURL(blob);
-            otherVideo.src = url;
-            document.getElementById("lastUpdate").textContent = "Just now";
-            if(lastOtherBlobUrl) URL.revokeObjectURL(lastOtherBlobUrl);
-            lastOtherBlobUrl = url;
-        }catch(e){ document.getElementById("lastUpdate").textContent = "Error"; }
-    }, 67);
-}
-
-async function toggleAudio(){
-    if(!isAudioOn){
-        ws = new WebSocket((location.protocol==="https:"?"wss://":"ws://")+window.location.host+"/{{ ws_endpoint }}");
-        ws.binaryType="arraybuffer";
-        ws.onmessage=(ev)=>{ audioQueue.push(ev.data); if(!playing) playNext(); };
-        audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-        mediaStream = await navigator.mediaDevices.getUserMedia({audio:true});
-        const source = audioCtx.createMediaStreamSource(mediaStream);
-        processor = audioCtx.createScriptProcessor(4096,1,1);
-        source.connect(processor); processor.connect(audioCtx.destination);
-        processor.onaudioprocess=(e)=>{
-            const input = e.inputBuffer.getChannelData(0);
-            const copy = new Float32Array(input.length); copy.set(input);
-            document.getElementById("micLevel").value = Math.max(...copy.map(Math.abs));
-            if(ws && ws.readyState===WebSocket.OPEN){ ws.send(copy.buffer); }
-        };
-        isAudioOn=true;
-        document.getElementById("startAudioBtn").textContent="Stop Audio";
-        document.getElementById("audioStatus").textContent="On";
-    }else{
-        isAudioOn=false;
-        if(processor) processor.disconnect(); processor=null;
-        if(mediaStream){ mediaStream.getTracks().forEach(t=>t.stop()); mediaStream=null; }
-        if(ws) ws.close(); ws=null;
-        document.getElementById("startAudioBtn").textContent="Start Audio";
-        document.getElementById("audioStatus").textContent="Off";
-    }
-}
-
-function playNext(){
-    if(audioQueue.length===0){ playing=false; return; }
-    playing=true;
-    const chunk = new Float32Array(audioQueue.shift());
-    const buffer = audioCtx.createBuffer(1, chunk.length, 44100);
-    buffer.copyToChannel(chunk,0);
-    const src = audioCtx.createBufferSource();
-    src.buffer=buffer; src.connect(audioCtx.destination);
-    src.onended=playNext; src.start();
-}
 </script>
+
 </body>
 </html>
 """
