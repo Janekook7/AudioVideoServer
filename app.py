@@ -375,29 +375,28 @@ function stopAudioSendAndRecv() {
 /* Toggle mic sending (UI + logic) */
 function toggleMicUI() {
     micOn = !micOn;
-    document.getElementById("micBtn").className = micOn ? "controlBtn btn-on" : "controlBtn btn-off";
+    const micBtn = document.getElementById("micBtn");
+    micBtn.className = micOn ? "controlBtn btn-on" : "controlBtn btn-off";
 
-    // If deafen active, don't allow mic to be on -- clear it
     if (deafenOn && micOn) {
         micOn = false;
-        document.getElementById("micBtn").className = "controlBtn btn-off";
+        micBtn.className = "controlBtn btn-off";
         return;
     }
 
     if (micOn) {
-        // ensure ws and capture are started
-        startAudioSendAndRecv();
+        if (isAudioOn && mediaStream) {
+            // Re-enable tracks if stack already running
+            mediaStream.getAudioTracks().forEach(t => t.enabled = true);
+        } else {
+            // Start audio stack if not already started
+            startAudioSendAndRecv();
+        }
     } else {
-        // stop sending but keep receive path alive (unless deafen)
-        // we can simply stop the media tracks to stop sending
-        if (mediaStream) mediaStream.getAudioTracks().forEach(t => t.enabled = false);
-        // but keep ws open to continue receiving
-        if (mediaStream && mediaStream.getAudioTracks) {
-            // prefer toggling enabled instead of stopping entirely so toggling back is faster
+        if (mediaStream) {
             mediaStream.getAudioTracks().forEach(t => t.enabled = false);
         }
-        // if you want to fully close send resources when micOff, uncomment:
-        // stopAudioSendAndRecv();
+        // keep ws open to continue receiving
     }
 }
 
