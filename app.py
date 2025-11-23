@@ -42,160 +42,167 @@ DEVICE_PAGE_HTML = r"""
 <!DOCTYPE html>
 <html>
 <head>
-<title>{{ device_name }} - Video+Audio</title>
+<title>{{ device_name }}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <style>
-    body {
-        margin:0;
-        padding:0;
-        background:#000;
-        color:white;
-        font-family:Arial, sans-serif;
-        overflow:hidden;
-    }
+body {
+    margin: 0;
+    padding: 0;
+    background: black;
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+    color: white;
+}
 
-    /* Full screen 2-video layout */
-    #videoContainer {
-        display:flex;
-        flex-direction:row;
-        width:100vw;
-        height:100vh;
-        background:#111;
-    }
+/* --- LAYOUT --- */
+#mainContainer {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 15px;
+    height: calc(100vh - 100px);
+    padding: 10px;
+}
 
-    .videoBox {
-        flex:1;
-        display:flex;
-        justify-content:center;
-        align-items:center;
-        background:#000;
-        border-right:2px solid #222;
-    }
+.videoBox {
+    background: #111;
+    border-radius: 10px;
+    padding: 5px;
+    width: 48%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
 
-    .videoBox:last-child {
-        border-right:none;
-    }
+video, img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 10px;
+}
 
-    video, img {
-        width:100%;
-        height:100%;
-        object-fit:cover;
-        background:#000;
-    }
+/* --- BOTTOM CONTROL BAR (Discord style) --- */
+#controlBar {
+    position: fixed;
+    bottom: 25px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1e1e1e;
+    padding: 10px 25px;
+    display: flex;
+    gap: 20px;
+    border-radius: 15px;
+}
 
-    /* Bottom control bar */
-    #controlBar {
-        position:fixed;
-        bottom:0;
-        left:0;
-        width:100%;
-        height:80px;
-        background:rgba(20,20,20,0.9);
-        display:flex;
-        justify-content:center;
-        align-items:center;
-        gap:25px;
-        border-top:2px solid #333;
-    }
+.controlButton {
+    background: #2c2c2c;
+    border: none;
+    padding: 12px 20px;
+    color: white;
+    border-radius: 10px;
+    font-size: 16px;
+    cursor: pointer;
+}
 
-    .ctrlBtn {
-        width:55px;
-        height:55px;
-        border:none;
-        border-radius:12px;
-        background:#2b2b2b;
-        display:flex;
-        justify-content:center;
-        align-items:center;
-        font-size:28px;
-        color:white;
-        cursor:pointer;
-        transition:0.2s;
-    }
+.controlButton.red {
+    background: #b52828;
+}
 
-    .ctrlBtn.red {
-        background:#b32626;
-    }
-
-    .ctrlBtn:hover {
-        background:#444;
-    }
-
-    .ctrlBtn.red:hover {
-        background:#d22;
-    }
+.controlButton.green {
+    background: #3ba55d;
+}
 </style>
 </head>
 
 <body>
 
-<!-- 2-camera fullscreen layout -->
-<div id="videoContainer">
+<div id="mainContainer">
+    <!-- My Camera -->
     <div class="videoBox">
         <video id="myVideo" autoplay muted playsinline></video>
     </div>
 
+    <!-- Other Camera -->
     <div class="videoBox">
-        <img id="otherVideo">
+        <img id="otherVideo" src="">
     </div>
 </div>
 
-<!-- Control panel -->
+<!-- ==================== CONTROL BAR ==================== -->
 <div id="controlBar">
-    <button id="micBtn" class="ctrlBtn">🎤</button>
-    <button id="deafenBtn" class="ctrlBtn">🎧</button>
-    <button id="videoBtn" class="ctrlBtn">🎥</button>
+
+    <button id="micBtn" class="controlButton green" onclick="toggleMic()">
+        🎤 Mic On
+    </button>
+
+    <button id="deafenBtn" class="controlButton" onclick="toggleDeafen()">
+        🔇 Deafen
+    </button>
+
+    <button id="videoBtn" class="controlButton green" onclick="toggleVideo()">
+        🎥 Video On
+    </button>
+
 </div>
 
-
 <script>
-/* --------------------------
-   STATE
---------------------------- */
-let micOn = false;
-let deafened = false;
+/* ==========================================================
+   JAVASCRIPT – Wire into your existing functions
+   ========================================================== */
+
+let micOn = true;
 let videoOn = false;
+let deafened = false;
 
-/* --------------------------
-   BUTTON LOGIC
---------------------------- */
-
-document.getElementById("micBtn").onclick = () => {
+function toggleMic() {
     micOn = !micOn;
-    document.getElementById("micBtn").classList.toggle("red", !micOn);
-    toggleAudio();     // call your existing function
-};
 
-document.getElementById("deafenBtn").onclick = () => {
-    deafened = !deafened;
-    document.getElementById("deafenBtn").classList.toggle("red", deafened);
-
-    // Deafened = mute mic AND mute incoming audio
-    if (deafened) {
-        if (window.mediaStream) {
-            mediaStream.getTracks().forEach(t => t.enabled = false);
-        }
-        window._deafened = true;
+    if (micOn) {
+        document.getElementById("micBtn").textContent = "🎤 Mic On";
+        document.getElementById("micBtn").classList.remove("red");
+        document.getElementById("micBtn").classList.add("green");
+        toggleAudio(true);
     } else {
-        if (window.mediaStream) {
-            mediaStream.getTracks().forEach(t => t.enabled = true);
-        }
-        window._deafened = false;
+        document.getElementById("micBtn").textContent = "🔇 Mic Off";
+        document.getElementById("micBtn").classList.remove("green");
+        document.getElementById("micBtn").classList.add("red");
+        toggleAudio(false);
     }
-};
+}
 
-document.getElementById("videoBtn").onclick = () => {
+function toggleDeafen() {
+    deafened = !deafened;
+
+    if (deafened) {
+        document.getElementById("deafenBtn").textContent = "🔇 Deafened";
+        document.getElementById("deafenBtn").classList.add("red");
+
+        // Stop sending + receiving audio
+        toggleAudio(false);
+    } else {
+        document.getElementById("deafenBtn").textContent = "🔈 Undeafened";
+        document.getElementById("deafenBtn").classList.remove("red");
+
+        toggleAudio(true);
+    }
+}
+
+function toggleVideo() {
     videoOn = !videoOn;
-    document.getElementById("videoBtn").classList.toggle("red", !videoOn);
-    toggleVideo();     // call your existing camera function
-};
 
-/* --------------------------
-   VIDEO & AUDIO HOOKS
-   (your functions remain)
---------------------------- */
-
-const device_id = "{{ device_id }}";
+    if (videoOn) {
+        document.getElementById("videoBtn").textContent = "🎥 Video On";
+        document.getElementById("videoBtn").classList.add("green");
+        startVideoUpload();
+    } else {
+        document.getElementById("videoBtn").textContent = "🚫 Video Off";
+        document.getElementById("videoBtn").classList.remove("green");
+        document.getElementById("videoBtn").classList.add("red");
+        stopVideo();
+    }
+}
 </script>
 
 </body>
