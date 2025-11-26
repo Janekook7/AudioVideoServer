@@ -1,29 +1,30 @@
-name: Python Runner
+name: Run Python with Gunicorn and Uvicorn
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   run-python:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'  # You can change the version
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.11
 
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-        if: ${{ hashFiles('requirements.txt') != '' }}
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
 
-      - name: Run Python script
-        run: |
-          python app.py
+    - name: Run Gunicorn with Uvicorn worker
+      run: |
+        gunicorn app:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:5000
